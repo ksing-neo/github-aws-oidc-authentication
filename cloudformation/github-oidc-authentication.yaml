@@ -1,0 +1,77 @@
+Description: "Create IAM OIDC provider for GitHub Actions and IAM role with access to AWS resources"
+
+Parameters:
+  Region:
+    Type: String
+    Description: AWS region
+
+  GitHubUrl:
+    Type: String
+    Description: GitHub OIDC URL
+    Default: "https://token.actions.githubusercontent.com"
+
+  GitHubUser:
+    Type: String
+    Description: GitHub User or Organization
+
+  GitHubRepository:
+    Type: String
+    Description: GitHub Repository
+
+  Thumbprint:
+    Type: String
+    Description: Thumbprint of the certificate
+
+Resources:
+  # Step 1: Create an OIDC provider for GitHub Actions
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: !Ref GitHubUrl
+      ThumbprintList:
+        - !Ref Thumbprint  # Thumbprint of the certificate
+      ClientIdList:
+        - sts.amazonaws.com
+
+  # Step 2: Create IAM Role for GitHub Actions
+  GitHubActionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "GitHubActionsRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Federated: !GetAtt GitHubOIDCProvider.Arn
+            Action: "sts:AssumeRoleWithWebIdentity"
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: "sts.amazonaws.com"
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubUser}/${GitHubRepository}:*"
+
+  # Step 3: Attach Policy to IAM Role
+  GitHubActionsPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "GitHubActionsPolicy"
+      Roles:
+        - !Ref GitHubActionsRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Action:
+              - "s3:ListAllMyBuckets"
+            Resource:
+              - "arn:aws:s3:::*"
+
+Outputs:
+  GitHubOIDCProviderArn:
+    Description: "GitHub OIDC provider ARN"
+    Value: !GetAtt GitHubOIDCProvider.Arn
+
+  GitHubActionsRoleArn:
+    Description: "GitHub Actions Role ARN"
+    Value: !GetAtt GitHubActionsRole.Arn
